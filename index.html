@@ -57,15 +57,16 @@ function speak(t,cb,r){if(!window.speechSynthesis)return toast("音声再生に�
  u.onerror=e=>{if(e.error!="canceled"&&e.error!="interrupted")toast("音声を再生できません("+e.error+")。音量とマナーモードを確認してください")};
  window._u=u;const go=()=>s.speak(u);if(s.speaking||s.pending){s.cancel();setTimeout(go,100)}else go()}
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-let REC=null;
-function listen(cb,done){if(!SR){toast("このブラウザは音声認識に未対応です(Chrome/Safari推奨)");return}
+let REC=null;const stat=m=>{const el=document.querySelector("#st");if(el)el.textContent=m};
+function listen(cb,done){if(!SR){const m="このブラウザは音声認識に未対応です。iPhoneはSafari、AndroidはChromeで開いてください";toast(m);stat(m);return}
  try{speechSynthesis&&speechSynthesis.cancel()}catch(e){}
- const r=new SR();r.lang="en-US";r.interimResults=false;r.maxAlternatives=1;r.continuous=false;let tm;
- r.onresult=e=>{cb(e.results[0][0].transcript)};
- r.onerror=e=>toast(e.error=="no-speech"?"声が聞こえませんでした。もう一度どうぞ":e.error=="not-allowed"||e.error=="service-not-allowed"?"マイクが許可されていません":"マイクエラー: "+e.error);
- r.onend=()=>{clearTimeout(tm);REC=null;done&&done()};
- try{r.start()}catch(e){toast("マイクを開始できませんでした");done&&done();return}
- tm=setTimeout(()=>{try{r.stop()}catch(e){}},8000);REC=r;return r}
+ const r=new SR();r.lang="en-US";r.interimResults=true;r.maxAlternatives=1;r.continuous=false;let tm,got=0,last="";
+ r.onstart=()=>stat("🎤 マイクON。英語で話してください");r.onaudiostart=()=>stat("🎤 音を拾っています…");r.onspeechstart=()=>stat("🗣 声を検出しました");r.onspeechend=()=>stat("認識中…");
+ r.onresult=e=>{const x=e.results[e.results.length-1];last=x[0].transcript;if(x.isFinal){got=1;cb(last)}else stat("🗣 "+last)};
+ r.onerror=e=>{const m=({"no-speech":"声が聞こえませんでした。マイクに近づいて、もう一度どうぞ","not-allowed":"マイクが許可されていません(ブラウザの設定を確認)","service-not-allowed":"音声認識が許可されていません。iPhoneは「設定 > 一般 > キーボード > 音声入力」をオンに","audio-capture":"マイクが見つかりません","network":"通信エラー(音声認識はネット接続が必要です)"})[e.error]||"マイクエラー: "+e.error;stat(m);toast(m)};
+ r.onend=()=>{clearTimeout(tm);REC=null;if(!got&&last){got=1;cb(last)}done&&done()};
+ try{r.start()}catch(e){stat("マイクを開始できませんでした");done&&done();return}
+ tm=setTimeout(()=>{try{r.stop()}catch(e){}},10000);REC=r;return r}
 const hd=(t,k)=>`<div class="row" style="margin:0 0 12px"><button id="back" style="flex:0 0 auto">← ホーム</button><b style="flex:1;align-self:center">${t} <span class="sub">Lv.${S.sk[k].lv}</span></b></div>`;
 const bind=()=>{const b=$("#back");if(b)b.onclick=()=>{speechSynthesis&&speechSynthesis.cancel();home()}};
 function due(){const n=Date.now();return ALL.filter(w=>S.w[w[0]]&&S.w[w[0]].due<=n&&(w[2]<=S.sk.vocab.lv||S.w[w[0]].m))}
@@ -82,7 +83,7 @@ function listening(){const s=pick("listening"),ch=shuf([s,...shuf(SENT.filter(x=
   $("#r").innerHTML=`<div class="card" style="margin-top:12px"><div class="en">${s[0]}</div><div class="ja" style="font-size:15px">${s[1]}</div>${ms.length?`<div class="sub" style="margin-top:8px">📝 単語練習に追加: ${ms.map(w=>w[0]+"("+w[1]+")").join("、")}</div>`:""}<div class="row"><button class="p" id="nx">次へ</button></div></div>`;$("#nx").onclick=listening})}
 const nw=t=>t.toLowerCase().replace(/[^a-z' ]/g,"").split(/\s+/).filter(Boolean);
 function miss(en){const out=[];nw(en).forEach(x=>{const w=ALL.find(a=>a[0]==x);if(!w)return;const o=S.w[x];if(o&&o.b>=4)return;S.w[x]={b:1,due:Date.now(),m:1};out.push(w)});save();return out}
-function speaking(){const s=pick("speaking");app.innerHTML=hd("Speaking","speaking")+`<div class="card"><div class="en">${s[0]}</div><div class="sub">お手本を聞いて、同じ音で真似しましょう</div><div class="row"><button id="sp">🔊 お手本</button><button id="sl">🐢 ゆっくり</button><button class="p" id="mic">🎤 話す</button></div></div><div id="r"></div>`;bind();
+function speaking(){const s=pick("speaking");app.innerHTML=hd("Speaking","speaking")+`<div class="card"><div class="en">${s[0]}</div><div class="sub">お手本を聞いて、同じ音で真似しましょう</div><div class="row"><button id="sp">🔊 お手本</button><button id="sl">🐢 ゆっくり</button><button class="p" id="mic">🎤 話す</button></div><div class="sub" id="st" style="margin-top:8px"></div></div><div id="r"></div>`;bind();
  $("#sp").onclick=()=>speak(s[0]);$("#sl").onclick=()=>speak(s[0],0,.55);
  $("#mic").onclick=()=>{if(REC){REC.stop();return}$("#mic").textContent="⏹ 聞いています…(話し終えたらタップ)";const r=listen(t=>{const h=nw(t),pool=[...h],tg=nw(s[0]);let hit=0;const marks=tg.map(w=>{const i=pool.indexOf(w);if(i>=0){pool.splice(i,1);hit++;return`<span class="w-ok" data-w="${w}">${w}</span>`}return`<span class="w-ng" data-w="${w}">${w}</span>`});
   const sc=Math.round(hit/tg.length*100),ok=sc>=70;rec("speaking",ok);
@@ -92,7 +93,7 @@ async function conv(){app.innerHTML=hd("Conversation")+`<div class="grid">${SC.m
  document.querySelectorAll(".mode").forEach(b=>b.onclick=()=>chat(SC[b.dataset.i],0))}
 async function chat(sc,ai){const me=ai?sc.a:sc.b,aiR=ai?sc.b:sc.a;let msgs=[],busy=false;const lvn=["very easy (A1)","easy (A1-A2)","simple (A2)","intermediate (B1)","upper-intermediate (B1-B2)"][S.sk.conv.lv-1];
  const SYS=`Role-play for English practice. You are ${aiR}. The learner is ${me}. Scene: ${sc.s}. Learner: Japanese adult at junior-high English level, target ${lvn}. Use short simple sentences (under 12 words), one turn at a time, and ask easy questions to keep going. Reply ONLY with your line. If the learner's last message has a clear English mistake, add a new line starting with "訂正:" giving the corrected sentence and a very short Japanese note.`;
- app.innerHTML=hd(sc.n,"conv")+`<div class="sub">あなた: ${me} / AI: ${aiR}</div><div id="log"></div><div class="row"><button class="p" id="mic">🎤 話す</button><button id="sw" style="flex:0 0 auto">役割交代</button></div><div class="row"><input id="tx" placeholder="マイクが使えない時はここに入力"><button id="go" style="flex:0 0 auto">送信</button></div>`;bind();
+ app.innerHTML=hd(sc.n,"conv")+`<div class="sub">あなた: ${me} / AI: ${aiR}</div><div id="log"></div><div class="sub" id="st"></div><div class="row"><button class="p" id="mic">🎤 話す</button><button id="sw" style="flex:0 0 auto">役割交代</button></div><div class="row"><input id="tx" placeholder="マイクが使えない時はここに入力"><button id="go" style="flex:0 0 auto">送信</button></div>`;bind();
  $("#sw").onclick=()=>chat(sc,ai?0:1);
  const draw=()=>{$("#log").innerHTML=msgs.map((m,i)=>{if(m.r=="me")return`<div class="bub me">${m.t}</div>`;const[a,...f]=m.t.split(/\n?訂正:/);return`<div class="bub ai" data-i="${i}">${m.v?a.trim():"🔊 タップで文字を表示"}</div>`+(f.length?`<div class="fix">訂正: ${f.join("").trim()}</div>`:"")}).join("")};
  $("#log").onclick=e=>{const b=e.target.closest(".ai");if(!b)return;const m=msgs[b.dataset.i];m.v=1;draw();speak(m.t.split(/\n?訂正:/)[0].trim())};
