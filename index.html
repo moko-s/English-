@@ -50,9 +50,22 @@ function rec(k,ok){const s=S.sk[k];s.t++;if(ok)s.c++;if(S.d.k!=today())S.d={k:to
 const rnd=a=>a[Math.floor(Math.random()*a.length)];
 const shuf=a=>a.map(x=>[Math.random(),x]).sort((x,y)=>x[0]-y[0]).map(x=>x[1]);
 const pick=k=>{const L=S.sk[k].lv,cur=SENT.filter(s=>s[2]==L),low=SENT.filter(s=>s[2]<=L);return rnd(Math.random()<.7?cur:low)};
-function speak(t,cb,r){if(!window.speechSynthesis)return toast("音声再生に未対応です");speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang="en-US";u.rate=r||.85;if(cb)u.onend=cb;speechSynthesis.speak(u)}
+if(window.speechSynthesis){speechSynthesis.getVoices();speechSynthesis.onvoiceschanged=()=>speechSynthesis.getVoices()}
+function speak(t,cb,r){if(!window.speechSynthesis)return toast("音声再生に未対応です");const s=speechSynthesis;try{s.resume()}catch(e){}
+ const vs=s.getVoices(),v=vs.find(x=>/^en[-_]US/i.test(x.lang))||vs.find(x=>/^en/i.test(x.lang)),u=new SpeechSynthesisUtterance(t);
+ if(v){u.voice=v;u.lang=v.lang}else u.lang="en-US";u.rate=r||.85;u.volume=1;if(cb)u.onend=cb;
+ u.onerror=e=>{if(e.error!="canceled"&&e.error!="interrupted")toast("音声を再生できません("+e.error+")。音量とマナーモードを確認してください")};
+ window._u=u;const go=()=>s.speak(u);if(s.speaking||s.pending){s.cancel();setTimeout(go,100)}else go()}
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-function listen(cb){if(!SR){toast("このブラウザは音声認識に未対応です(Chrome/Safari推奨)");return}const r=new SR();r.lang="en-US";r.interimResults=false;r.onresult=e=>cb(e.results[0][0].transcript);r.onerror=e=>toast("マイクを使えませんでした: "+e.error);r.start();return r}
+let REC=null;
+function listen(cb,done){if(!SR){toast("このブラウザは音声認識に未対応です(Chrome/Safari推奨)");return}
+ try{speechSynthesis&&speechSynthesis.cancel()}catch(e){}
+ const r=new SR();r.lang="en-US";r.interimResults=false;r.maxAlternatives=1;r.continuous=false;let tm;
+ r.onresult=e=>{cb(e.results[0][0].transcript)};
+ r.onerror=e=>toast(e.error=="no-speech"?"声が聞こえませんでした。もう一度どうぞ":e.error=="not-allowed"||e.error=="service-not-allowed"?"マイクが許可されていません":"マイクエラー: "+e.error);
+ r.onend=()=>{clearTimeout(tm);REC=null;done&&done()};
+ try{r.start()}catch(e){toast("マイクを開始できませんでした");done&&done();return}
+ tm=setTimeout(()=>{try{r.stop()}catch(e){}},8000);REC=r;return r}
 const hd=(t,k)=>`<div class="row" style="margin:0 0 12px"><button id="back" style="flex:0 0 auto">← ホーム</button><b style="flex:1;align-self:center">${t} <span class="sub">Lv.${S.sk[k].lv}</span></b></div>`;
 const bind=()=>{const b=$("#back");if(b)b.onclick=()=>{speechSynthesis&&speechSynthesis.cancel();home()}};
 function due(){const n=Date.now();return ALL.filter(w=>S.w[w[0]]&&S.w[w[0]].due<=n&&(w[2]<=S.sk.vocab.lv||S.w[w[0]].m))}
@@ -71,10 +84,10 @@ const nw=t=>t.toLowerCase().replace(/[^a-z' ]/g,"").split(/\s+/).filter(Boolean)
 function miss(en){const out=[];nw(en).forEach(x=>{const w=ALL.find(a=>a[0]==x);if(!w)return;const o=S.w[x];if(o&&o.b>=4)return;S.w[x]={b:1,due:Date.now(),m:1};out.push(w)});save();return out}
 function speaking(){const s=pick("speaking");app.innerHTML=hd("Speaking","speaking")+`<div class="card"><div class="en">${s[0]}</div><div class="sub">お手本を聞いて、同じ音で真似しましょう</div><div class="row"><button id="sp">🔊 お手本</button><button id="sl">🐢 ゆっくり</button><button class="p" id="mic">🎤 話す</button></div></div><div id="r"></div>`;bind();
  $("#sp").onclick=()=>speak(s[0]);$("#sl").onclick=()=>speak(s[0],0,.55);
- $("#mic").onclick=()=>{$("#mic").textContent="聞いています…";const r=listen(t=>{const h=nw(t),pool=[...h],tg=nw(s[0]);let hit=0;const marks=tg.map(w=>{const i=pool.indexOf(w);if(i>=0){pool.splice(i,1);hit++;return`<span class="w-ok" data-w="${w}">${w}</span>`}return`<span class="w-ng" data-w="${w}">${w}</span>`});
+ $("#mic").onclick=()=>{if(REC){REC.stop();return}$("#mic").textContent="⏹ 聞いています…(話し終えたらタップ)";const r=listen(t=>{const h=nw(t),pool=[...h],tg=nw(s[0]);let hit=0;const marks=tg.map(w=>{const i=pool.indexOf(w);if(i>=0){pool.splice(i,1);hit++;return`<span class="w-ok" data-w="${w}">${w}</span>`}return`<span class="w-ng" data-w="${w}">${w}</span>`});
   const sc=Math.round(hit/tg.length*100),ok=sc>=70;rec("speaking",ok);
   $("#r").innerHTML=`<div class="card"><div style="font-size:34px;font-weight:700;color:var(--${ok?"ok":"ng"})">${sc}点</div><div class="en" style="font-size:18px">${marks.join(" ")}</div><div class="sub" style="margin-top:8px">認識結果: ${t}</div><div class="sub">赤い単語は聞き取れなかった部分。単語をタップするとお手本が聞けます</div><div class="row"><button id="rt">もう一度</button><button class="p" id="nx">次へ</button></div></div>`;document.querySelectorAll("[data-w]").forEach(x=>x.onclick=()=>speak(x.dataset.w,0,.6));$("#nx").onclick=speaking;
-  $("#rt").onclick=()=>{$("#r").innerHTML="";$("#mic").textContent="🎤 話す"};$("#mic").textContent="🎤 話す"});if(!r)$("#mic").textContent="🎤 話す"}}
+  $("#rt").onclick=()=>{$("#r").innerHTML="";$("#mic").textContent="🎤 話す"}},()=>{$("#mic").textContent="🎤 話す"});if(!r)$("#mic").textContent="🎤 話す"}}
 async function conv(){app.innerHTML=hd("Conversation")+`<div class="grid">${SC.map((c,i)=>`<button class="mode" data-i="${i}"><b>${c.n}</b></button>`).join("")}</div>`;bind();
  document.querySelectorAll(".mode").forEach(b=>b.onclick=()=>chat(SC[b.dataset.i],0))}
 async function chat(sc,ai){const me=ai?sc.a:sc.b,aiR=ai?sc.b:sc.a;let msgs=[],busy=false;const lvn=["very easy (A1)","easy (A1-A2)","simple (A2)","intermediate (B1)","upper-intermediate (B1-B2)"][S.sk.conv.lv-1];
@@ -88,7 +101,7 @@ async function chat(sc,ai){const me=ai?sc.a:sc.b,aiR=ai?sc.b:sc.a;let msgs=[],bu
   msgs.forEach(m=>{const r=m.r=="me"?"user":"assistant",l=turns[turns.length-1];if(l.role==r)l.content+="\n"+m.t;else turns.push({role:r,content:m.t})});
   try{const o=await sample(turns);msgs.push({r:"ai",t:o.text.trim()});if(msgs.length>1)rec("conv",!/訂正:/.test(o.text));draw();speak(o.text.split(/\n?訂正:/)[0].trim())}catch(e){toast("AIが応答できませんでした")}busy=false;const th=$("#th");if(th)th.remove()};
  const send=t=>{if(!t||busy)return;msgs.push({r:"me",t});draw();ask()};
- $("#mic").onclick=()=>{$("#mic").textContent="聞いています…";listen(t=>{$("#mic").textContent="🎤 話す";send(t)})||($("#mic").textContent="🎤 話す")};
+ $("#mic").onclick=()=>{if(REC){REC.stop();return}$("#mic").textContent="⏹ 聞いています…";listen(t=>{send(t)},()=>{$("#mic").textContent="🎤 話す"})||($("#mic").textContent="🎤 話す")};
  $("#go").onclick=()=>{const v=$("#tx").value.trim();$("#tx").value="";send(v)};
  if(!ai)ask()}
 function vocab(){const d=due(),nw2=WORDS.filter(w=>w[2]<=S.sk.vocab.lv&&!S.w[w[0]]);const dm=d.filter(x=>S.w[x[0]].m);let w=d.length?rnd(dm.length?dm:d):nw2[0];
